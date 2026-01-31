@@ -1,26 +1,36 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
-# Environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+# Prevent Python from writing .pyc files & buffering
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# System dependencies
+# Install only runtime PostgreSQL deps (no gcc needed)
 RUN apt-get update && apt-get install -y \
-    gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Copy & install Python deps first (CI/CD cache layer)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
+# Copy project
 COPY . .
 
-# Expose port
-EXPOSE 8000
+# Fix auth_user table issue - RUN MIGRATIONS AT BUILD TIME
+RUN python manage.py collectstatic --noinput && \
+    python manage.py makemigrations --noinput && \
+    python manage.py migrate --noinput
 
-# Start Gunicorn (runtime command)
-CMD ["gunicorn", "secure_registry_server.wsgi:application", "--bind", "0.0.0.0:8000", "--log-level", "info"]
+# Expose Render port
+EXPOSE 10000
+
+# Production Gunicorn
+CMD ["gunicorn", "secure_registry_server.wsgi:application", \
+     "--bind", "0.0.0.0:10000", \
+     "--workers=2", \
+     "--threads=4", \
+     "--timeout=120", \
+     "--log-level=info"]
