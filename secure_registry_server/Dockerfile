@@ -5,25 +5,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Minimal PostgreSQL client only
+# PostgreSQL client only
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Cache dependencies (CI/CD speed)
+# Cache Python dependencies (CI/CD optimization)
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# Copy source code
 COPY . .
-
-# Only collectstatic at build time (no DB needed)
-RUN python manage.py collectstatic --noinput
 
 EXPOSE 10000
 
-# Run migrations THEN start server (key fix)
+# Run migrations + collectstatic + start server (all at runtime with env vars)
 CMD python manage.py migrate --noinput && \
+    python manage.py collectstatic --noinput && \
     gunicorn secure_registry_server.wsgi:application \
     --bind 0.0.0.0:10000 \
     --workers 2 \
